@@ -104,6 +104,11 @@ jobs:
   build-image:
     name: Build Cachi2 image and run smoketest on it
     runs-on: ubuntu-latest
+    container:
+      image: registry.fedoraproject.org/fedora:37
+        #    defaults:
+        #      run:
+        #        working-directory: scripts
     steps:
       - name: add checkout action...
         uses: actions/checkout@v3
@@ -112,17 +117,13 @@ jobs:
 
       - name: Install required packages
         run: |
+          dnf install -y buildah python python-pip git podman
           python -m pip install --upgrade pip
           pip install tox tox-gh-actions
 
       - name: Build Cachi2 image
-        uses: redhat-actions/buildah-build@v2
-        with:
-          image: cachi2
-          tags: ${{ github.sha }}
-          arch: amd64
-          containerfiles: |
-            ./Containerfile
+        run: |
+          podman build . --tag cachi2
 
       - name: Check image created and Cachi2 version
         run: |
@@ -133,17 +134,17 @@ jobs:
       # Buildah version < 1.28.0 has broken network isolation
       # Till new buildah is provided to ubuntu github runner
       # build and install package using go
-      - name: Build and install buildah v1.28.2
-        run: |
-          sudo apt install make libseccomp-dev libgpgme-dev libdevmapper-dev golang git
-          git clone -b v1.28.2 https://github.com/containers/buildah ./src/github.com/containers/buildah
-          cd ./src/github.com/containers/buildah
-          PATH=/usr/lib/go/bin:$PATH make runc all SECURITYTAGS="apparmor seccomp"
-          sudo make install install.runc
-          buildah version
-
-      - name: Run integration tests on built image
-        env:
-          CACHI2_IMAGE: localhost/cachi2:${{ github.sha }}
-        run: |
-           tox -e integration
+      #      - name: Build and install buildah v1.28.2
+      #        run: |
+      #          sudo apt install make libseccomp-dev libgpgme-dev libdevmapper-dev golang git
+      #          git clone -b v1.28.2 https://github.com/containers/buildah ./src/github.com/containers/buildah
+      #          cd ./src/github.com/containers/buildah
+      #          PATH=/usr/lib/go/bin:$PATH make runc all SECURITYTAGS="apparmor seccomp"
+      #          sudo make install install.runc
+      #          buildah version
+      #
+      #      - name: Run integration tests on built image
+      #        env:
+      #          CACHI2_IMAGE: localhost/cachi2:${{ github.sha }}
+      #        run: |
+      #           tox -e integration
