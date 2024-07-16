@@ -37,7 +37,7 @@ def resolve_packages(request: Request) -> RequestOutput:
     This function performs the operations in a working copy of the source directory in case
     a package manager that can make unwanted modifications will be used.
     """
-    if not request.yarn_packages:
+    if not request.yarn_packages and not request.yarn_classic_packages:
         return _resolve_packages(request)
     else:
         original_source_dir = request.source_dir
