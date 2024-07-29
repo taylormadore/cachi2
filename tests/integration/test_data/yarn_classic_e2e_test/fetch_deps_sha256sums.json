@@ -1,0 +1,13 @@
+{
+  "yarn-classic/91680e4db1415fea33eac878cfd889c80a7b55c7.tar.gz": "sha256:b450dde8448ef716da0d330c0589b0eddbb6e34bff9aa6f54e144eda205fd5b0",
+  "yarn-classic/assertion-error-1.1.0.tgz": "sha256:e23e003f80c55c20352da6534d117fa881f72aeb1133cafb3f674caf79d45692",
+  "yarn-classic/cachito-yarn-without-deps.git-da0a2888aa7aab37fec34c0b36d9e44560d2cf3e": "sha256:eb15606b7c5190b912371ff37dab5252781fde8b6d020c28996b1454733d1041",
+  "yarn-classic/chai-4.2.0.tgz": "sha256:56947bbb83f2cc755d01071502024088747b609a8f338632ee27649a171cba0a",
+  "yarn-classic/check-error-1.0.2.tgz": "sha256:92554b32cbf947c79e2832277ee730015408dd75e753ee320ba1fc7bf5915dda",
+  "yarn-classic/deep-eql-3.0.1.tgz": "sha256:d0d75e7828b6b044cd81ddf332f03830b6f80e671495b265eee22a187a49c3a9",
+  "yarn-classic/get-func-name-2.0.0.tgz": "sha256:791183ec55849b4e8fb87b356a6060d5a14dd72f1fe821750af8300e9afb4866",
+  "yarn-classic/is-positive-3.1.0.tgz": "sha256:fa99491b98f87a4b74cb03e1aad2d3e4e13565f16d7aae58bc1f3b6db3801489",
+  "yarn-classic/leftpad-0.0.1.tgz": "sha256:b6d82f0d510cb1cb812ebc13705f8c1c5f9467325bc64c05ebec2920c23016bd",
+  "yarn-classic/pathval-1.1.1.tgz": "sha256:5a49ae26a33710abcf45ce00b608e95ff70ab8247565bfe8453688e081c33cb6",
+  "yarn-classic/type-detect-4.0.8.tgz": "sha256:3f9e101a7de731f94b59ee2d6087565d8b4dd79b3da65a3a2656e67428d19cf7"
+}
