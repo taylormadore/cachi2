@@ -1,6 +1,7 @@
 import re
+from itertools import chain
 from pathlib import Path
-from typing import Optional, Union
+from typing import Iterable, Optional, Union
 from urllib.parse import urlparse
 
 from pyarn.lockfile import Lockfile
@@ -9,6 +10,7 @@ from pydantic import BaseModel
 
 from cachi2.core.errors import PackageRejected, UnexpectedFormat
 from cachi2.core.package_managers.npm import NPM_REGISTRY_CNAMES
+from cachi2.core.package_managers.yarn.project import PackageJson
 from cachi2.core.rooted_path import RootedPath
 
 # https://github.com/yarnpkg/yarn/blob/7cafa512a777048ce0b666080a24e80aae3d66a9/src/resolvers/exotics/git-resolver.js#L15-L17
@@ -187,6 +189,22 @@ def _get_packages_from_lockfile(source_dir: RootedPath) -> list[YarnClassicPacka
     return [_classify_pyarn_package(source_dir, package) for package in pyarn_packages]
 
 
-def resolve_packages(source_dir: RootedPath) -> list[YarnClassicPackage]:
+def _get_main_package(source_dir: RootedPath) -> WorkspacePackage:
+    """Return a WorkspacePackage for the main package in package.json."""
+    # TODO: Use yarn classic project files once available
+    package_json = PackageJson.from_file(source_dir.join_within_root("package.json"))
+    if "name" not in package_json._data:
+        raise PackageRejected(
+            f"The package.json file located at {package_json._path.path} is missing the name field",
+            solution="Ensure the package.json file has a valid name.",
+        )
+    return WorkspacePackage(
+        name=package_json._data["name"],
+        version=package_json._data.get("version"),
+        relpath=package_json._path.subpath_from_root.parent,
+    )
+
+
+def resolve_packages(source_dir: RootedPath) -> Iterable[YarnClassicPackage]:
     """Return a list of Packages corresponding to all project dependencies."""
-    return _get_packages_from_lockfile(source_dir)
+    return chain([_get_main_package(source_dir)], _get_packages_from_lockfile(source_dir))
