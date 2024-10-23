@@ -11,6 +11,10 @@ from pydantic import BaseModel
 from cachi2.core.errors import PackageRejected, UnexpectedFormat
 from cachi2.core.package_managers.npm import NPM_REGISTRY_CNAMES
 from cachi2.core.package_managers.yarn.project import PackageJson
+from cachi2.core.package_managers.yarn_classic.workspaces import (
+    Workspace,
+    extract_workspace_metadata,
+)
 from cachi2.core.rooted_path import RootedPath
 
 # https://github.com/yarnpkg/yarn/blob/7cafa512a777048ce0b666080a24e80aae3d66a9/src/resolvers/exotics/git-resolver.js#L15-L17
@@ -205,6 +209,25 @@ def _get_main_package(source_dir: RootedPath) -> WorkspacePackage:
     )
 
 
+def _get_workspace_packages(
+    source_dir: RootedPath, workspaces: list[Workspace]
+) -> list[WorkspacePackage]:
+    """Return a WorkspacePackage for each Workspace."""
+    return [
+        WorkspacePackage(
+            name=ws.package_contents["name"],
+            version=ws.package_contents.get("version"),
+            relpath=ws.path.relative_to(source_dir.path),
+        )
+        for ws in workspaces
+    ]
+
+
 def resolve_packages(source_dir: RootedPath) -> Iterable[YarnClassicPackage]:
-    """Return a list of Packages corresponding to all project dependencies."""
-    return chain([_get_main_package(source_dir)], _get_packages_from_lockfile(source_dir))
+    """Return an iterable of Packages corresponding to all project dependencies."""
+    workspaces = extract_workspace_metadata(source_dir)
+    return chain(
+        [_get_main_package(source_dir)],
+        _get_workspace_packages(source_dir, workspaces),
+        _get_packages_from_lockfile(source_dir),
+    )
