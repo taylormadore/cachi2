@@ -344,8 +344,8 @@ def fetch_deps_and_check_output(
     # git will refuse to modify untracked nested git repositories unless a second -f is given
     repo.git.clean("-ffdx")
     # --recurse-submodules is to prevent checkout failures when submodule structure changes
-    # between branches
-    repo.git.checkout(test_params.branch, "--recurse-submodules")
+    # between branches. force=True is required to overwrite local changes to submodules.
+    repo.git.checkout(test_params.branch, "--recurse-submodules", force=True)
     # Ensure submodules are properly initialized and synchronized
     repo.submodule_update(init=True, force_reset=True, recursive=True)
 
