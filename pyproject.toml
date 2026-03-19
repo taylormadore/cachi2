@@ -46,6 +46,7 @@ dev = [
 test = [
   "filelock",
   "jsonschema",
+  "podman-compose",
   "pytest",
   "pytest-asyncio",
   "pytest-cov",
