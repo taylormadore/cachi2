@@ -81,7 +81,7 @@ from . import utils
         ),
         pytest.param(
             utils.TestParameters(
-                branch="rpm/dnf-tls-client-auth",
+                branch="nginx-rpm-dnf-tls-client-auth",
                 packages=(
                     {
                         "path": ".",
@@ -99,6 +99,7 @@ from . import utils
                 check_output=True,
                 check_deps_checksums=False,
                 expected_exit_code=0,
+                repo_url="https://github.com/taylormadore/integration-tests",
             ),
             id="rpm_dnf_tls_client_auth",
             marks=pytest.mark.skipif(

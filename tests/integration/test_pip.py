@@ -113,16 +113,17 @@ log = logging.getLogger(__name__)
         ),
         pytest.param(
             utils.TestParameters(
-                branch="pip/custom-index",
+                branch="nginx-pip-custom-index",
                 packages=({"path": ".", "type": "pip", "binary": {}},),
                 expected_exit_code=0,
                 expected_output="All dependencies fetched successfully",
                 netrc_content="machine 127.0.0.1 login hermeto-user password hermeto-pass",
+                repo_url="https://github.com/taylormadore/integration-tests",
             ),
             id="pip_custom_index",
             marks=pytest.mark.skipif(
-                os.getenv("HERMETO_TEST_LOCAL_PYPISERVER") != "1",
-                reason="HERMETO_TEST_LOCAL_PYPISERVER!=1",
+                os.getenv("HERMETO_TEST_LOCAL_NEXUS") != "1",
+                reason="HERMETO_TEST_LOCAL_NEXUS!=1",
             ),
         ),
         pytest.param(
