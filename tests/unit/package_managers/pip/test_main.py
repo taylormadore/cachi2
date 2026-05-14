@@ -27,6 +27,12 @@ from hermeto.core.models.output import ProjectFile
 from hermeto.core.models.sbom import Annotation, Component, Property
 from hermeto.core.package_managers.cargo.main import PackageWithCorruptLockfileRejected
 from hermeto.core.package_managers.pip import main as pip
+from hermeto.core.package_managers.pip.packages import (
+    PipPackageInfo,
+    PyPIPackage,
+    URLPackage,
+    VCSPackage,
+)
 from hermeto.core.rooted_path import RootedPath
 from tests.common_utils import GIT_REF
 
@@ -269,22 +275,21 @@ class TestDownload:
         req = mock_requirement("eggs", "vcs", url=vcs_url, download_line=f"eggs @ {vcs_url}")
         req_file = mock_requirements_file(requirements=[req])
 
-        download_info = pip._download_vcs_package(req, req_file, rooted_tmp_path)
+        dep = pip._download_vcs_package(req, req_file, rooted_tmp_path)
 
         expected_path = rooted_tmp_path.join_within_root(f"eggs-gitcommit-{GIT_REF}.tar.gz").path
-        assert download_info == {
-            "package": "eggs",
-            "path": expected_path,
-            "kind": "vcs",
-            "requirement_file": str(req_file.file_path.subpath_from_root),
-            "missing_req_file_checksum": True,
-            "package_type": "",
-            "url": "https://github.com/spam/eggs",
-            "ref": GIT_REF,
-            "namespace": "spam",
-            "repo": "eggs",
-            "host": "github.com",
-        }
+        assert dep == VCSPackage(
+            package="eggs",
+            path=expected_path,
+            requirement_file=str(req_file.file_path.subpath_from_root),
+            missing_req_file_checksum=True,
+            package_type="",
+            url="https://github.com/spam/eggs",
+            ref=GIT_REF,
+            host="github.com",
+            namespace="spam",
+            repo="eggs",
+        )
 
         mock_clone_as_tarball.assert_called_once_with(
             "https://github.com/spam/eggs", GIT_REF, to_path=expected_path
@@ -325,7 +330,7 @@ class TestDownload:
         )
         req_file = mock_requirements_file(requirements=[req])
 
-        download_info = pip._download_url_package(
+        dep = pip._download_url_package(
             req,
             req_file,
             rooted_tmp_path,
@@ -333,16 +338,15 @@ class TestDownload:
         )
 
         expected_path = rooted_tmp_path.join_within_root("foo-abcdef.tar.gz").path
-        assert download_info == {
-            "package": "foo",
-            "path": expected_path,
-            "kind": "url",
-            "requirement_file": str(req_file.file_path.subpath_from_root),
-            "missing_req_file_checksum": False,
-            "package_type": "",
-            "original_url": original_url,
-            "checksum": "sha256:abcdef",
-        }
+        assert dep == URLPackage(
+            package="foo",
+            path=expected_path,
+            requirement_file=str(req_file.file_path.subpath_from_root),
+            missing_req_file_checksum=False,
+            package_type="",
+            original_url=original_url,
+            checksum="sha256:abcdef",
+        )
 
         mock_download_file.assert_called_once_with(
             original_url, expected_path, insecure=host_is_trusted
@@ -584,16 +588,15 @@ class TestDownload:
             pypi_checksum={pypi_checksum_sdist},
             req_file_checksums=set() if missing_req_file_checksum else {req_file_checksum_sdist},
         )
-        foo_sdist_d_i = {
-            "package": "foo",
-            "path": foo_sdist_download,
-            "kind": "pypi",
-            "requirement_file": str(req_file.file_path.subpath_from_root),
-            "missing_req_file_checksum": missing_req_file_checksum,
-            "package_type": "sdist",
-            "version": "1.0",
-            "index_url": expect_index_url,
-        }
+        foo_sdist_d_i = PyPIPackage(
+            package="foo",
+            path=foo_sdist_download,
+            requirement_file=str(req_file.file_path.subpath_from_root),
+            missing_req_file_checksum=missing_req_file_checksum,
+            package_type="sdist",
+            version="1.0",
+            index_url=expect_index_url,
+        )
         verify_foo_sdist_checksum_call = mock.call(foo_sdist_download, {pypi_checksum_sdist})
         expected_downloads = [foo_sdist_d_i]
 
@@ -602,7 +605,7 @@ class TestDownload:
             wheel_0_download = pip_deps.join_within_root("foo-1.0-cp35-many-linux.whl").path
             wheel_1_download = pip_deps.join_within_root("foo-1.0-cp25-win32.whl").path
             wheel_2_download = pip_deps.join_within_root("foo-1.0-any.whl").path
-            wheel_downloads: list[dict[str, Any]] = []
+            wheel_downloads: list[PyPIPackage] = []
 
             for wheel_path, pypi_checksum in zip(
                 [wheel_0_download, wheel_1_download, wheel_2_download],
@@ -620,16 +623,15 @@ class TestDownload:
                 )
                 foo_wheels_DPI.append(dpi)
                 wheel_downloads.append(
-                    {
-                        "package": "foo",
-                        "path": wheel_path,
-                        "kind": "pypi",
-                        "requirement_file": str(req_file.file_path.subpath_from_root),
-                        "missing_req_file_checksum": missing_req_file_checksum,
-                        "package_type": "wheel",
-                        "version": "1.0",
-                        "index_url": expect_index_url,
-                    }
+                    PyPIPackage(
+                        package="foo",
+                        path=wheel_path,
+                        requirement_file=str(req_file.file_path.subpath_from_root),
+                        missing_req_file_checksum=missing_req_file_checksum,
+                        package_type="wheel",
+                        version="1.0",
+                        index_url=expect_index_url,
+                    )
                 )
 
             verify_wheel0_checksum_call = mock.call(
@@ -659,16 +661,15 @@ class TestDownload:
             req_file_checksums=set() if missing_req_file_checksum else {bar_pypi_checksum},
         )
         expected_downloads.append(
-            {
-                "package": "bar",
-                "path": bar_sdist_download,
-                "kind": "pypi",
-                "requirement_file": str(req_file.file_path.subpath_from_root),
-                "missing_req_file_checksum": missing_req_file_checksum,
-                "package_type": "sdist",
-                "version": "2.0",
-                "index_url": expect_index_url,
-            }
+            PyPIPackage(
+                package="bar",
+                path=bar_sdist_download,
+                requirement_file=str(req_file.file_path.subpath_from_root),
+                missing_req_file_checksum=missing_req_file_checksum,
+                package_type="sdist",
+                version="2.0",
+                index_url=expect_index_url,
+            )
         )
 
         mock_process_package_distributions.side_effect = [
@@ -800,16 +801,15 @@ class TestDownload:
         url_download = pip_deps.join_within_root("bar-654321.tar.gz").path
 
         expected_download = [
-            {
-                "package": "bar",
-                "path": url_download,
-                "kind": "url",
-                "requirement_file": str(req_file.file_path.subpath_from_root),
-                "missing_req_file_checksum": False,
-                "package_type": "",
-                "original_url": plain_url,
-                "checksum": "sha256:654321",
-            }
+            URLPackage(
+                package="bar",
+                path=url_download,
+                requirement_file=str(req_file.file_path.subpath_from_root),
+                missing_req_file_checksum=False,
+                package_type="",
+                original_url=plain_url,
+                checksum="sha256:654321",
+            )
         ]
 
         mock_must_match_any_checksum.side_effect = [
@@ -874,19 +874,18 @@ class TestDownload:
         ).path
 
         expected_download = [
-            {
-                "package": "bacon",
-                "path": vcs_download,
-                "kind": "vcs",
-                "requirement_file": str(req_file.file_path.subpath_from_root),
-                "missing_req_file_checksum": True,
-                "package_type": "",
-                "url": "https://github.com/spam/bacon",
-                "ref": GIT_REF,
-                "host": "github.com",
-                "namespace": "spam",
-                "repo": "bacon",
-            }
+            VCSPackage(
+                package="bacon",
+                path=vcs_download,
+                requirement_file=str(req_file.file_path.subpath_from_root),
+                missing_req_file_checksum=True,
+                package_type="",
+                url="https://github.com/spam/bacon",
+                ref=GIT_REF,
+                host="github.com",
+                namespace="spam",
+                repo="bacon",
+            )
         ]
         # </setup>
 
@@ -935,26 +934,24 @@ class TestDownload:
 
         downloads = pip._download_from_requirement_files(rooted_tmp_path, [req_file1, req_file2])
         assert downloads == [
-            {
-                "package": "foo",
-                "path": pypi_download1,
-                "kind": "pypi",
-                "requirement_file": str(req_file1.subpath_from_root),
-                "missing_req_file_checksum": True,
-                "package_type": "sdist",
-                "version": "1.0.0",
-                "index_url": pypi_simple.PYPI_SIMPLE_ENDPOINT,
-            },
-            {
-                "package": "bar",
-                "path": pypi_download2,
-                "kind": "pypi",
-                "requirement_file": str(req_file2.subpath_from_root),
-                "missing_req_file_checksum": True,
-                "package_type": "sdist",
-                "version": "0.0.1",
-                "index_url": pypi_simple.PYPI_SIMPLE_ENDPOINT,
-            },
+            PyPIPackage(
+                package="foo",
+                path=pypi_download1,
+                requirement_file=str(req_file1.subpath_from_root),
+                missing_req_file_checksum=True,
+                package_type="sdist",
+                version="1.0.0",
+                index_url=pypi_simple.PYPI_SIMPLE_ENDPOINT,
+            ),
+            PyPIPackage(
+                package="bar",
+                path=pypi_download2,
+                requirement_file=str(req_file2.subpath_from_root),
+                missing_req_file_checksum=True,
+                package_type="sdist",
+                version="0.0.1",
+                index_url=pypi_simple.PYPI_SIMPLE_ENDPOINT,
+            ),
         ]
         _check_metadata_in_sdist.assert_has_calls(
             [mock.call(pypi_package1.path), mock.call(pypi_package2.path)], any_order=True
@@ -986,13 +983,12 @@ def test_resolve_pip_no_deps(mock_metadata: mock.Mock, rooted_tmp_path: RootedPa
         package_path=rooted_tmp_path,
         output_dir=rooted_tmp_path.join_within_root("output"),
     )
-    expected = {
-        "package": {"name": "foo", "version": "1.0", "type": "pip"},
-        "dependencies": [],
-        "packages_containing_rust_code": [],
-        "requirements": [],
-    }
-    assert pkg_info == expected
+    assert pkg_info.name == "foo"
+    assert pkg_info.version == "1.0"
+    assert pkg_info.requires == []
+    assert pkg_info.build_requires == []
+    assert pkg_info.requirements == []
+    assert pkg_info.packages_containing_rust_code == []
 
 
 @mock.patch("hermeto.core.package_managers.pip.main._get_pip_metadata")
@@ -1050,28 +1046,26 @@ def test_resolve_pip(
     mock_metadata.return_value = ("foo", "1.0")
     mock_download.side_effect = [
         [
-            {
-                "version": "2.1",
-                "kind": "pypi",
-                "package": "bar",
-                "path": "some/path",
-                "requirement_file": str(req_file.subpath_from_root),
-                "missing_req_file_checksum": False,
-                "package_type": "sdist",
-                "index_url": pypi_simple.PYPI_SIMPLE_ENDPOINT,
-            }
+            PyPIPackage(
+                package="bar",
+                path=Path("some/path"),
+                requirement_file=str(req_file.subpath_from_root),
+                missing_req_file_checksum=False,
+                package_type="sdist",
+                version="2.1",
+                index_url=pypi_simple.PYPI_SIMPLE_ENDPOINT,
+            )
         ],
         [
-            {
-                "version": "0.0.5",
-                "kind": "pypi",
-                "package": "baz",
-                "path": "another/path",
-                "requirement_file": str(build_req_file.subpath_from_root),
-                "missing_req_file_checksum": False,
-                "package_type": "sdist",
-                "index_url": pypi_simple.PYPI_SIMPLE_ENDPOINT,
-            }
+            PyPIPackage(
+                package="baz",
+                path=Path("another/path"),
+                requirement_file=str(build_req_file.subpath_from_root),
+                missing_req_file_checksum=False,
+                package_type="sdist",
+                version="0.0.5",
+                index_url=pypi_simple.PYPI_SIMPLE_ENDPOINT,
+            )
         ],
     ]
     if custom_requirements:
@@ -1087,38 +1081,32 @@ def test_resolve_pip(
             output_dir=rooted_tmp_path.join_within_root("output"),
         )
 
-    expected = {
-        "package": {"name": "foo", "version": "1.0", "type": "pip"},
-        "dependencies": [
-            {
-                "name": "bar",
-                "version": "2.1",
-                "checksum": None,
-                "type": "pip",
-                "build_dependency": False,
-                "kind": "pypi",
-                "requirement_file": "req.txt" if custom_requirements else "requirements.txt",
-                "missing_req_file_checksum": False,
-                "package_type": "sdist",
-                "index_url": pypi_simple.PYPI_SIMPLE_ENDPOINT,
-            },
-            {
-                "name": "baz",
-                "version": "0.0.5",
-                "checksum": None,
-                "type": "pip",
-                "build_dependency": True,
-                "kind": "pypi",
-                "requirement_file": "breq.txt" if custom_requirements else "requirements-build.txt",
-                "missing_req_file_checksum": False,
-                "package_type": "sdist",
-                "index_url": pypi_simple.PYPI_SIMPLE_ENDPOINT,
-            },
-        ],
-        "packages_containing_rust_code": [],
-        "requirements": [req_file, build_req_file],
-    }
-    assert pkg_info == expected
+    assert pkg_info.name == "foo"
+    assert pkg_info.version == "1.0"
+    assert pkg_info.requires == [
+        PyPIPackage(
+            package="bar",
+            path=Path("some/path"),
+            requirement_file="req.txt" if custom_requirements else "requirements.txt",
+            missing_req_file_checksum=False,
+            package_type="sdist",
+            version="2.1",
+            index_url=pypi_simple.PYPI_SIMPLE_ENDPOINT,
+        )
+    ]
+    assert pkg_info.build_requires == [
+        PyPIPackage(
+            package="baz",
+            path=Path("another/path"),
+            requirement_file="breq.txt" if custom_requirements else "requirements-build.txt",
+            missing_req_file_checksum=False,
+            package_type="sdist",
+            version="0.0.5",
+            index_url=pypi_simple.PYPI_SIMPLE_ENDPOINT,
+        )
+    ]
+    assert pkg_info.requirements == [req_file, build_req_file]
+    assert pkg_info.packages_containing_rust_code == []
 
 
 @pytest.mark.parametrize(
@@ -1283,66 +1271,64 @@ def test_fetch_pip_source(
     request = Request(source_dir=source_dir, output_dir=output_dir, packages=packages)
 
     mock_filter_cargo_packages.return_value = []
-    resolved_a = {
-        "package": {"name": "foo", "version": "1.0", "type": "pip"},
-        "dependencies": [
-            {
-                "name": "bar",
-                "version": "https://x.org/bar.zip",
-                "checksum": "sha256:aaaaaaaaaa",
-                "type": "pip",
-                "build_dependency": False,
-                "kind": "url",
-                "requirement_file": "requirements.txt",
-                "missing_req_file_checksum": False,
-                "package_type": "",
-            },
-            {
-                "name": "baz",
-                "version": "0.0.5",
-                "checksum": None,
-                "index_url": pypi_simple.PYPI_SIMPLE_ENDPOINT,
-                "type": "pip",
-                "build_dependency": True,
-                "kind": "pypi",
-                "requirement_file": "requirements.txt",
-                "missing_req_file_checksum": False,
-                "package_type": "wheel",
-            },
+    resolved_a = PipPackageInfo(
+        name="foo",
+        version="1.0",
+        requires=[
+            URLPackage(
+                package="bar",
+                path=Path("/deps/pip/bar.tar.gz"),
+                requirement_file="requirements.txt",
+                missing_req_file_checksum=False,
+                package_type="",
+                original_url="https://x.org/bar.zip",
+                checksum="sha256:aaaaaaaaaa",
+            ),
         ],
-        "packages_containing_rust_code": [],
-        "requirements": ["/package_a/requirements.txt", "/package_a/requirements-build.txt"],
-    }
-    resolved_b = {
-        "package": {"name": "spam", "version": "2.1", "type": "pip"},
-        "dependencies": [
-            {
-                "name": "ham",
-                "version": "3.2",
-                "checksum": None,
-                "index_url": CUSTOM_PYPI_ENDPOINT,
-                "type": "pip",
-                "build_dependency": False,
-                "kind": "pypi",
-                "requirement_file": "requirements.txt",
-                "missing_req_file_checksum": True,
-                "package_type": "sdist",
-            },
-            {
-                "name": "eggs",
-                "version": "https://x.org/eggs.zip",
-                "checksum": "sha256:aaaaaaaaaa",
-                "type": "pip",
-                "build_dependency": False,
-                "kind": "url",
-                "requirement_file": "requirements.txt",
-                "missing_req_file_checksum": True,
-                "package_type": "",
-            },
+        build_requires=[
+            PyPIPackage(
+                package="baz",
+                path=Path("/deps/pip/baz.whl"),
+                requirement_file="requirements.txt",
+                missing_req_file_checksum=False,
+                package_type="wheel",
+                version="0.0.5",
+                index_url=pypi_simple.PYPI_SIMPLE_ENDPOINT,
+            ),
         ],
-        "packages_containing_rust_code": [],
-        "requirements": ["/package_b/requirements.txt"],
-    }
+        packages_containing_rust_code=[],
+        requirements=[
+            RootedPath("/package_a/requirements.txt"),
+            RootedPath("/package_a/requirements-build.txt"),
+        ],
+    )
+    resolved_b = PipPackageInfo(
+        name="spam",
+        version="2.1",
+        requires=[
+            PyPIPackage(
+                package="ham",
+                path=Path("/deps/pip/ham.tar.gz"),
+                requirement_file="requirements.txt",
+                missing_req_file_checksum=True,
+                package_type="sdist",
+                version="3.2",
+                index_url=CUSTOM_PYPI_ENDPOINT,
+            ),
+            URLPackage(
+                package="eggs",
+                path=Path("/deps/pip/eggs.zip"),
+                requirement_file="requirements.txt",
+                missing_req_file_checksum=True,
+                package_type="",
+                original_url="https://x.org/eggs.zip",
+                checksum="sha256:aaaaaaaaaa",
+            ),
+        ],
+        build_requires=[],
+        packages_containing_rust_code=[],
+        requirements=[RootedPath("/package_b/requirements.txt")],
+    )
 
     replaced_file_a = ProjectFile(
         abspath=Path("/package_a/requirements.txt"),
@@ -1437,97 +1423,13 @@ def test_fetch_pip_source(
         mock_resolve_pip.assert_any_call(
             source_dir, output_dir, [Path("requirements.txt")], None, None
         )
-        mock_replace_requirements.assert_any_call("/package_a/requirements.txt")
-        mock_replace_requirements.assert_any_call("/package_a/requirements-build.txt")
+        mock_replace_requirements.assert_any_call(RootedPath("/package_a/requirements.txt"))
+        mock_replace_requirements.assert_any_call(RootedPath("/package_a/requirements-build.txt"))
     if n_pip_packages == 2:
         mock_resolve_pip.assert_any_call(
             source_dir.join_within_root("foo"), output_dir, None, [], None
         )
-        mock_replace_requirements.assert_any_call("/package_b/requirements.txt")
-
-
-@pytest.mark.parametrize(
-    "dependency, expected_purl",
-    [
-        (
-            {
-                "name": "pypi_package",
-                "version": "1.0.0",
-                "type": "pip",
-                "dev": False,
-                "kind": "pypi",
-                "index_url": pypi_simple.PYPI_SIMPLE_ENDPOINT,
-            },
-            "pkg:pypi/pypi-package@1.0.0",
-        ),
-        (
-            {
-                "name": "mypypi_package",
-                "version": "2.0.0",
-                "type": "pip",
-                "dev": False,
-                "kind": "pypi",
-                "index_url": CUSTOM_PYPI_ENDPOINT,
-            },
-            f"pkg:pypi/mypypi-package@2.0.0?repository_url={CUSTOM_PYPI_ENDPOINT}",
-        ),
-        (
-            {
-                "name": "git_dependency",
-                "version": f"git+https://github.com/my-org/git_dependency@{'a' * 40}",
-                "type": "pip",
-                "dev": False,
-                "kind": "vcs",
-            },
-            f"pkg:pypi/git-dependency?vcs_url=git%2Bhttps://github.com/my-org/git_dependency%40{'a' * 40}",
-        ),
-        (
-            {
-                "name": "Git_dependency",
-                "version": f"git+file:///github.com/my-org/git_dependency@{'a' * 40}",
-                "type": "pip",
-                "dev": False,
-                "kind": "vcs",
-            },
-            f"pkg:pypi/git-dependency?vcs_url=git%2Bfile:///github.com/my-org/git_dependency%40{'a' * 40}",
-        ),
-        (
-            {
-                "name": "git_dependency",
-                "version": f"git+ssh://git@github.com/my-org/git_dependency@{'a' * 40}",
-                "type": "pip",
-                "dev": False,
-                "kind": "vcs",
-            },
-            f"pkg:pypi/git-dependency?vcs_url=git%2Bssh://git%40github.com/my-org/git_dependency%40{'a' * 40}",
-        ),
-        (
-            {
-                "name": "git_dependency",
-                "version": f"git+https://github.com/my-org/git_dependency@{'a' * 40}",
-                "type": "pip",
-                "dev": False,
-                "kind": "vcs",
-            },
-            f"pkg:pypi/git-dependency?vcs_url=git%2Bhttps://github.com/my-org/git_dependency%40{'a' * 40}",
-        ),
-        (
-            {
-                "name": "https_dependency",
-                "version": f"https://github.com/my-org/https_dependency/{'a' * 40}/file.tar.gz",
-                "type": "pip",
-                "dev": False,
-                "kind": "url",
-                "checksum": "sha256:de526c1",
-            },
-            f"pkg:pypi/https-dependency?checksum=sha256:de526c1&download_url=https://github.com/my-org/https_dependency/{'a' * 40}/file.tar.gz",
-        ),
-    ],
-)
-def test_generate_purl_dependencies(dependency: dict[str, Any], expected_purl: str) -> None:
-    purl = pip._generate_purl_dependency(dependency)
-
-    assert purl == expected_purl
+        mock_replace_requirements.assert_any_call(RootedPath("/package_b/requirements.txt"))
 
 
 @pytest.mark.parametrize(
@@ -1547,7 +1449,14 @@ def test_generate_purl_dependencies(dependency: dict[str, Any], expected_purl: s
 def test_generate_purl_main_package(
     mock_git_repo: Any, subpath: Path, expected_purl: str, rooted_tmp_path: RootedPath
 ) -> None:
-    package = {"name": "foo", "version": "1.0.0", "type": "pip"}
+    package = PipPackageInfo(
+        name="foo",
+        version="1.0.0",
+        requires=[],
+        build_requires=[],
+        requirements=[],
+        packages_containing_rust_code=[],
+    )
 
     mocked_repo = mock.Mock()
     mocked_repo.remote.return_value.url = "ssh://git@github.com/my-org/my-repo"
@@ -1583,7 +1492,14 @@ def test_generate_purl_main_package_permissive_mode_without_vcs_url(
 ) -> None:
     mock_handle_get_repo_id.side_effect = NotAGitRepo("Not a git repo", solution="N/A")
     mock_get_config.return_value.mode = Mode.PERMISSIVE
-    package = {"name": "foo", "version": "1.0.0", "type": "pip"}
+    package = PipPackageInfo(
+        name="foo",
+        version="1.0.0",
+        requires=[],
+        build_requires=[],
+        requirements=[],
+        packages_containing_rust_code=[],
+    )
 
     purl = pip._generate_purl_main_package(package, rooted_tmp_path.join_within_root(subpath))
 
@@ -1599,7 +1515,14 @@ def test_generate_purl_main_package_strict_mode_raises_without_git_repo(
 ) -> None:
     mock_get_repo_id.side_effect = NotAGitRepo("Not a git repo", solution="N/A")
     mock_get_config.return_value.mode = Mode.STRICT
-    package = {"name": "foo", "version": "1.0.0", "type": "pip"}
+    package = PipPackageInfo(
+        name="foo",
+        version="1.0.0",
+        requires=[],
+        build_requires=[],
+        requirements=[],
+        packages_containing_rust_code=[],
+    )
 
     with pytest.raises(NotAGitRepo):
         pip._generate_purl_main_package(package, rooted_tmp_path.join_within_root("."))
@@ -1635,7 +1558,14 @@ def test_generate_purl_main_package_permissive_mode_with_vcs_url(
     mock_git_repo.return_value = mocked_repo
 
     mock_get_config.return_value.mode = Mode.PERMISSIVE
-    package = {"name": "foo", "version": "1.0.0", "type": "pip"}
+    package = PipPackageInfo(
+        name="foo",
+        version="1.0.0",
+        requires=[],
+        build_requires=[],
+        requirements=[],
+        packages_containing_rust_code=[],
+    )
 
     purl = pip._generate_purl_main_package(package, rooted_tmp_path.join_within_root(subpath))
 
@@ -1685,66 +1615,64 @@ def test_fetch_pip_source_correctly_reraises_when_there_is_a_dependency_cargo_lo
     )
     mock_verify_lockfile_present.return_value = None
 
-    resolved_a = {
-        "package": {"name": "foo", "version": "1.0", "type": "pip"},
-        "dependencies": [
-            {
-                "name": "bar",
-                "version": "https://x.org/bar.zip",
-                "checksum": "sha256:aaaaaaaaaa",
-                "type": "pip",
-                "build_dependency": False,
-                "kind": "url",
-                "requirement_file": "requirements.txt",
-                "missing_req_file_checksum": False,
-                "package_type": "",
-            },
-            {
-                "name": "baz",
-                "version": "0.0.5",
-                "checksum": None,
-                "index_url": pypi_simple.PYPI_SIMPLE_ENDPOINT,
-                "type": "pip",
-                "build_dependency": True,
-                "kind": "pypi",
-                "requirement_file": "requirements.txt",
-                "missing_req_file_checksum": False,
-                "package_type": "wheel",
-            },
+    resolved_a = PipPackageInfo(
+        name="foo",
+        version="1.0",
+        requires=[
+            URLPackage(
+                package="bar",
+                path=Path("/deps/pip/bar.tar.gz"),
+                requirement_file="requirements.txt",
+                missing_req_file_checksum=False,
+                package_type="",
+                original_url="https://x.org/bar.zip",
+                checksum="sha256:aaaaaaaaaa",
+            ),
         ],
-        "packages_containing_rust_code": [CargoPackageInput(type="cargo", path=".")],
-        "requirements": ["/package_a/requirements.txt", "/package_a/requirements-build.txt"],
-    }
-    resolved_b = {
-        "package": {"name": "spam", "version": "2.1", "type": "pip"},
-        "dependencies": [
-            {
-                "name": "ham",
-                "version": "3.2",
-                "checksum": None,
-                "index_url": CUSTOM_PYPI_ENDPOINT,
-                "type": "pip",
-                "build_dependency": False,
-                "kind": "pypi",
-                "requirement_file": "requirements.txt",
-                "missing_req_file_checksum": True,
-                "package_type": "sdist",
-            },
-            {
-                "name": "eggs",
-                "version": "https://x.org/eggs.zip",
-                "checksum": "sha256:aaaaaaaaaa",
-                "type": "pip",
-                "build_dependency": False,
-                "kind": "url",
-                "requirement_file": "requirements.txt",
-                "missing_req_file_checksum": True,
-                "package_type": "",
-            },
+        build_requires=[
+            PyPIPackage(
+                package="baz",
+                path=Path("/deps/pip/baz.whl"),
+                requirement_file="requirements.txt",
+                missing_req_file_checksum=False,
+                package_type="wheel",
+                version="0.0.5",
+                index_url=pypi_simple.PYPI_SIMPLE_ENDPOINT,
+            ),
         ],
-        "packages_containing_rust_code": [CargoPackageInput(type="cargo", path=".")],
-        "requirements": ["/package_b/requirements.txt"],
-    }
+        packages_containing_rust_code=[CargoPackageInput(type="cargo", path=".")],
+        requirements=[
+            RootedPath("/package_a/requirements.txt"),
+            RootedPath("/package_a/requirements-build.txt"),
+        ],
+    )
+    resolved_b = PipPackageInfo(
+        name="spam",
+        version="2.1",
+        requires=[
+            PyPIPackage(
+                package="ham",
+                path=Path("/deps/pip/ham.tar.gz"),
+                requirement_file="requirements.txt",
+                missing_req_file_checksum=True,
+                package_type="sdist",
+                version="3.2",
+                index_url=CUSTOM_PYPI_ENDPOINT,
+            ),
+            URLPackage(
+                package="eggs",
+                path=Path("/deps/pip/eggs.zip"),
+                requirement_file="requirements.txt",
+                missing_req_file_checksum=True,
+                package_type="",
+                original_url="https://x.org/eggs.zip",
+                checksum="sha256:aaaaaaaaaa",
+            ),
+        ],
+        build_requires=[],
+        packages_containing_rust_code=[CargoPackageInput(type="cargo", path=".")],
+        requirements=[RootedPath("/package_b/requirements.txt")],
+    )
 
     replaced_file_a = ProjectFile(
         abspath=Path("/package_a/requirements.txt"),
@@ -1794,4 +1722,4 @@ def test_download_url_package_wheel_detection(
     pip_deps_dir.path.mkdir(parents=True, exist_ok=True)
     result = pip._download_url_package(req, req_file, pip_deps_dir, trusted_hosts=set())
     assert result is not None
-    assert result["package_type"] == expected_type
+    assert result.package_type == expected_type
