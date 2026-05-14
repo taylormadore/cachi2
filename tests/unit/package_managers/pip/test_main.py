@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import subprocess
 from collections.abc import Collection
-from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from textwrap import dedent
@@ -264,16 +263,22 @@ class TestDownload:
         mock_clone_as_tarball: Any,
         rooted_tmp_path: RootedPath,
     ) -> None:
-        """Test downloading of a single VCS package."""
+        """Test downloading of a single VCS dependency."""
         vcs_url = f"git+https://github.com/spam/eggs@{GIT_REF}"
 
         req = mock_requirement("eggs", "vcs", url=vcs_url, download_line=f"eggs @ {vcs_url}")
+        req_file = mock_requirements_file(requirements=[req])
 
-        download_info = pip._download_vcs_package(req, rooted_tmp_path)
+        download_info = pip._download_vcs_package(req, req_file, rooted_tmp_path)
 
+        expected_path = rooted_tmp_path.join_within_root(f"eggs-gitcommit-{GIT_REF}.tar.gz").path
         assert download_info == {
             "package": "eggs",
-            "path": rooted_tmp_path.join_within_root(f"eggs-gitcommit-{GIT_REF}.tar.gz").path,
+            "path": expected_path,
+            "kind": "vcs",
+            "requirement_file": str(req_file.file_path.subpath_from_root),
+            "missing_req_file_checksum": True,
+            "package_type": "",
             "url": "https://github.com/spam/eggs",
             "ref": GIT_REF,
             "namespace": "spam",
@@ -281,10 +286,8 @@ class TestDownload:
             "host": "github.com",
         }
 
-        download_path = download_info["path"]
-
         mock_clone_as_tarball.assert_called_once_with(
-            "https://github.com/spam/eggs", GIT_REF, to_path=download_path
+            "https://github.com/spam/eggs", GIT_REF, to_path=expected_path
         )
 
     @pytest.mark.parametrize(
@@ -299,16 +302,18 @@ class TestDownload:
             ("example.org:443", ["example.org"], True),
         ],
     )
+    @mock.patch("hermeto.core.package_managers.pip.main.must_match_any_checksum")
     @mock.patch("hermeto.core.package_managers.pip.main.download_binary_file")
     def test_download_url_package(
         self,
         mock_download_file: Any,
+        mock_must_match: Any,
         host_in_url: bool,
         trusted_hosts: list[str],
         host_is_trusted: bool,
         rooted_tmp_path: RootedPath,
     ) -> None:
-        """Test downloading of a single URL package."""
+        """Test downloading of a single URL dependency."""
         original_url = f"https://{host_in_url}/foo.tar.gz"
 
         req = mock_requirement(
@@ -318,23 +323,29 @@ class TestDownload:
             download_line=f"foo @ {original_url}",
             hashes=["sha256:abcdef"],
         )
+        req_file = mock_requirements_file(requirements=[req])
 
         download_info = pip._download_url_package(
             req,
+            req_file,
             rooted_tmp_path,
             set(trusted_hosts),
         )
 
+        expected_path = rooted_tmp_path.join_within_root("foo-abcdef.tar.gz").path
         assert download_info == {
             "package": "foo",
-            "path": rooted_tmp_path.join_within_root("foo-abcdef.tar.gz").path,
+            "path": expected_path,
+            "kind": "url",
+            "requirement_file": str(req_file.file_path.subpath_from_root),
+            "missing_req_file_checksum": False,
+            "package_type": "",
             "original_url": original_url,
             "checksum": "sha256:abcdef",
         }
 
-        download_path = download_info["path"]
         mock_download_file.assert_called_once_with(
-            original_url, download_path, insecure=host_is_trusted
+            original_url, expected_path, insecure=host_is_trusted
         )
 
     def test_ignored_and_rejected_options(self, caplog: pytest.LogCaptureFixture) -> None:
@@ -573,11 +584,14 @@ class TestDownload:
             pypi_checksum={pypi_checksum_sdist},
             req_file_checksums=set() if missing_req_file_checksum else {req_file_checksum_sdist},
         )
-        foo_sdist_d_i = foo_sdist_DPI.download_info | {
+        foo_sdist_d_i = {
+            "package": "foo",
+            "path": foo_sdist_download,
             "kind": "pypi",
             "requirement_file": str(req_file.file_path.subpath_from_root),
             "missing_req_file_checksum": missing_req_file_checksum,
             "package_type": "sdist",
+            "version": "1.0",
             "index_url": expect_index_url,
         }
         verify_foo_sdist_checksum_call = mock.call(foo_sdist_download, {pypi_checksum_sdist})
@@ -606,12 +620,14 @@ class TestDownload:
                 )
                 foo_wheels_DPI.append(dpi)
                 wheel_downloads.append(
-                    dpi.download_info
-                    | {
+                    {
+                        "package": "foo",
+                        "path": wheel_path,
                         "kind": "pypi",
                         "requirement_file": str(req_file.file_path.subpath_from_root),
                         "missing_req_file_checksum": missing_req_file_checksum,
                         "package_type": "wheel",
+                        "version": "1.0",
                         "index_url": expect_index_url,
                     }
                 )
@@ -643,12 +659,14 @@ class TestDownload:
             req_file_checksums=set() if missing_req_file_checksum else {bar_pypi_checksum},
         )
         expected_downloads.append(
-            bar_sdist_DPI.download_info
-            | {
+            {
+                "package": "bar",
+                "path": bar_sdist_download,
                 "kind": "pypi",
                 "requirement_file": str(req_file.file_path.subpath_from_root),
                 "missing_req_file_checksum": missing_req_file_checksum,
                 "package_type": "sdist",
+                "version": "2.0",
                 "index_url": expect_index_url,
             }
         )
@@ -733,7 +751,6 @@ class TestDownload:
 
     @pytest.mark.parametrize("checksum_match", [True, False])
     @pytest.mark.parametrize("trusted_hosts", [[], ["example.org"]])
-    @mock.patch("hermeto.core.package_managers.pip.main._download_url_package")
     @mock.patch("hermeto.core.package_managers.pip.main.must_match_any_checksum")
     @mock.patch.object(Path, "unlink")
     @mock.patch("hermeto.core.package_managers.pip.main.async_download_files")
@@ -744,16 +761,13 @@ class TestDownload:
         mock_async_download_files: mock.Mock,
         mock_unlink: mock.Mock,
         mock_must_match_any_checksum: mock.Mock,
-        mock_download_url_package: mock.Mock,
         trusted_hosts: list[str],
         checksum_match: bool,
         rooted_tmp_path: RootedPath,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """
-        Test dependency downloading.
-
-        Mock the helper functions used for downloading here, test them properly elsewhere.
+        Test dependency downloading for URL requirements.
 
         URL deps *must always* have a checksum, so we're only testing the case
         where the checksum *doesn't match* (we check for *missing*
@@ -783,22 +797,20 @@ class TestDownload:
 
         pip_deps = rooted_tmp_path.join_within_root("deps", "pip")
 
-        url_download = pip_deps.join_within_root(
-            "external-bar", "bar-external-sha256-654321.tar.gz"
-        ).path
+        url_download = pip_deps.join_within_root("bar-654321.tar.gz").path
 
-        url_download_info = {
-            "package": "bar",
-            "path": url_download,
-            "requirement_file": str(req_file.file_path.subpath_from_root),
-            # Checksums are *mandatory*
-            "missing_req_file_checksum": False,
-            "package_type": "",
-            "original_url": plain_url,
-            "checksum": "sha256:654321",
-        }
-
-        mock_download_url_package.return_value = deepcopy(url_download_info)
+        expected_download = [
+            {
+                "package": "bar",
+                "path": url_download,
+                "kind": "url",
+                "requirement_file": str(req_file.file_path.subpath_from_root),
+                "missing_req_file_checksum": False,
+                "package_type": "",
+                "original_url": plain_url,
+                "checksum": "sha256:654321",
+            }
+        ]
 
         mock_must_match_any_checksum.side_effect = [
             None if checksum_match else PackageRejected("", solution=None),
@@ -809,25 +821,15 @@ class TestDownload:
         found_download = pip._download_dependencies(rooted_tmp_path, req_file, None)
         if not checksum_match:
             expected_download = []
-        else:
-            expected_download = [
-                url_download_info | {"kind": "url"},
-            ]
         assert found_download == expected_download
         assert pip_deps.path.is_dir()
         # </call>
-
-        # <check calls that must always be made>
-        mock_download_url_package.assert_called_once_with(url_req, pip_deps, set(trusted_hosts))
-        # </check calls that must always be made>
 
         # <check calls to checksum verification method>
         if checksum_match:
             msg = "At least one dependency uses the --hash option, will require hashes"
         else:
-            msg = (
-                "Download 'bar-external-sha256-654321.tar.gz' was removed from the output directory"
-            )
+            msg = "was removed from the output directory"
         assert msg in caplog.text
         verify_checksum_call = [mock.call(url_download, [ChecksumInfo("sha256", "654321")])]
         mock_must_match_any_checksum.assert_has_calls(verify_checksum_call)
@@ -836,36 +838,25 @@ class TestDownload:
 
         # <check basic logging output>
         assert f"-- Processing requirement line '{url_req.download_line}'" in caplog.text
-        if checksum_match:
-            assert (
-                f"Successfully processed '{url_req.download_line}' in path 'deps/pip/external-bar/"
-                f"bar-external-sha256-654321.tar.gz'"
-            ) in caplog.text
         # </check basic logging output>
 
-    @mock.patch("hermeto.core.package_managers.pip.main._download_vcs_package")
     @mock.patch.object(Path, "unlink")
     @mock.patch("hermeto.core.package_managers.pip.main.async_download_files")
-    @mock.patch("hermeto.core.scm.clone_as_tarball")
+    @mock.patch("hermeto.core.package_managers.pip.main.clone_as_tarball")
     def test_download_dependencies_vcs(
         self,
         mock_clone_as_tarball: mock.Mock,
         mock_async_download_files: mock.Mock,
         mock_unlink: mock.Mock,
-        mock_download_vcs_package: mock.Mock,
         rooted_tmp_path: RootedPath,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """
-        Test dependency downloading.
-
-        Mock the helper functions used for downloading here, test them properly elsewhere.
+        Test dependency downloading for VCS requirements.
 
         VCS deps *cannot* be hashed, so we are not checking any checksum-related functions.
         """
         # <setup>
-        # "egg" has a very specific meaning in Python packaging world. Let's avoid
-        # confusion
         git_url = f"https://github.com/spam/bacon@{GIT_REF}"
 
         vcs_req = mock_requirement(
@@ -879,38 +870,31 @@ class TestDownload:
         pip_deps = rooted_tmp_path.join_within_root("deps", "pip")
 
         vcs_download = pip_deps.join_within_root(
-            "github.com",
-            "spam",
-            "bacon",
             f"bacon-gitcommit-{GIT_REF}.tar.gz",
         ).path
 
-        vcs_download_info = {
-            "package": "bacon",
-            "path": vcs_download,
-            "requirement_file": str(req_file.file_path.subpath_from_root),
-            # vcs deps *can't have* checksums
-            "missing_req_file_checksum": True,
-            "package_type": "",
-            "repo": "bacon",
-            # etc., not important for this test
-        }
-
-        mock_download_vcs_package.return_value = deepcopy(vcs_download_info)
+        expected_download = [
+            {
+                "package": "bacon",
+                "path": vcs_download,
+                "kind": "vcs",
+                "requirement_file": str(req_file.file_path.subpath_from_root),
+                "missing_req_file_checksum": True,
+                "package_type": "",
+                "url": "https://github.com/spam/bacon",
+                "ref": GIT_REF,
+                "host": "github.com",
+                "namespace": "spam",
+                "repo": "bacon",
+            }
+        ]
         # </setup>
 
         # <call>
         found_download = pip._download_dependencies(rooted_tmp_path, req_file, None)
-        expected_download = [
-            vcs_download_info | {"kind": "vcs"},
-        ]
         assert found_download == expected_download
         assert pip_deps.path.is_dir()
         # </call>
-
-        # <check calls that must always be made>
-        mock_download_vcs_package.assert_called_once_with(vcs_req, pip_deps)
-        # </check calls that must always be made>
 
         # <check calls to checksum verification method>
         msg = (
@@ -921,10 +905,6 @@ class TestDownload:
 
         # <check basic logging output>
         assert f"-- Processing requirement line '{vcs_req.download_line}'" in caplog.text
-        assert (
-            f"Successfully processed '{vcs_req.download_line}' in path 'deps/pip/github.com/spam/bacon/"
-            f"bacon-gitcommit-{GIT_REF}.tar.gz'"
-        ) in caplog.text
         # </check basic logging output>
 
     @mock.patch("hermeto.core.package_managers.pip.main.process_package_distributions")
@@ -955,20 +935,24 @@ class TestDownload:
 
         downloads = pip._download_from_requirement_files(rooted_tmp_path, [req_file1, req_file2])
         assert downloads == [
-            pypi_package1.download_info
-            | {
+            {
+                "package": "foo",
+                "path": pypi_download1,
                 "kind": "pypi",
                 "requirement_file": str(req_file1.subpath_from_root),
                 "missing_req_file_checksum": True,
                 "package_type": "sdist",
+                "version": "1.0.0",
                 "index_url": pypi_simple.PYPI_SIMPLE_ENDPOINT,
             },
-            pypi_package2.download_info
-            | {
+            {
+                "package": "bar",
+                "path": pypi_download2,
                 "kind": "pypi",
                 "requirement_file": str(req_file2.subpath_from_root),
                 "missing_req_file_checksum": True,
                 "package_type": "sdist",
+                "version": "0.0.1",
                 "index_url": pypi_simple.PYPI_SIMPLE_ENDPOINT,
             },
         ]
@@ -1794,17 +1778,20 @@ def test_fetch_pip_source_correctly_reraises_when_there_is_a_dependency_cargo_lo
         ("https://example.com/pkg-1.0.tar.gz?v=1.0#sha256=08695f5ad7", ""),
     ],
 )
-@mock.patch("hermeto.core.package_managers.pip.main._download_url_package")
-@mock.patch("hermeto.core.package_managers.pip.main._process_req")
-def test_process_url_req(
-    mock_process_req: mock.Mock,
-    mock_download_url_package: mock.Mock,
+@mock.patch("hermeto.core.package_managers.pip.main.must_match_any_checksum")
+@mock.patch("hermeto.core.package_managers.pip.main.download_binary_file")
+def test_download_url_package_wheel_detection(
+    mock_download_binary_file: mock.Mock,
+    mock_must_match: mock.Mock,
     test_url: str,
     expected_type: str,
+    rooted_tmp_path: RootedPath,
 ) -> None:
     """Ensure wheel packages are correctly identified even with URL fragments."""
-    req = mock_requirement("pkg", "url", url=test_url)
-    mock_process_req.return_value = {"package_type": ""}
-    result = pip._process_url_req(req, pip_deps_dir=mock.Mock(), trusted_hosts=set())
+    req = mock_requirement("pkg", "url", url=test_url, hashes=["sha256:abcdef"])
+    req_file = mock_requirements_file(requirements=[req])
+    pip_deps_dir = rooted_tmp_path.join_within_root("deps", "pip")
+    pip_deps_dir.path.mkdir(parents=True, exist_ok=True)
+    result = pip._download_url_package(req, req_file, pip_deps_dir, trusted_hosts=set())
     assert result is not None
-    assert result.get("package_type") == expected_type
+    assert result["package_type"] == expected_type
